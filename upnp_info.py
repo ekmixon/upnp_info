@@ -37,8 +37,8 @@ def discover_pnp_locations():
         while True:
             data, addr = sock.recvfrom(1024) # buffer size is 1024 bytes
             location_result = location_regex.search(data.decode('ASCII'))
-            if location_result and (location_result.group(1) in locations) == False:
-                locations.add(location_result.group(1))
+            if location_result and location_result[1] not in locations:
+                locations.add(location_result[1])
     except socket.error:
         sock.close()
 
@@ -68,7 +68,7 @@ def print_attribute(xml, xml_name, print_name):
 def parse_locations(locations):
     if len(locations) > 0:
         for location in locations:
-            print('[+] Loading %s...' % location)
+            print(f'[+] Loading {location}...')
             try:
                 resp = requests.get(location, timeout=2)
                 if resp.headers.get('server'):
@@ -110,8 +110,8 @@ def parse_locations(locations):
                     # Add a lead in '/' if it doesn't exist
                     scp = service.find('./{urn:schemas-upnp-org:device-1-0}SCPDURL').text
                     if scp[0] != '/':
-                        scp = '/' + scp
-                    serviceURL = parsed.scheme + "://" + parsed.netloc + scp
+                        scp = f'/{scp}'
+                    serviceURL = f"{parsed.scheme}://{parsed.netloc}{scp}"
                     print('\t\t=> API: %s' % serviceURL)
 
                     # read in the SCP XML
@@ -126,13 +126,31 @@ def parse_locations(locations):
                     for action in actions:
                         print('\t\t\t- ' + action.find('./{urn:schemas-upnp-org:service-1-0}name').text)
                         if action.find('./{urn:schemas-upnp-org:service-1-0}name').text == 'AddPortMapping':
-                            igd_ctr = parsed.scheme + "://" + parsed.netloc + service.find('./{urn:schemas-upnp-org:device-1-0}controlURL').text
+                            igd_ctr = (
+                                f"{parsed.scheme}://{parsed.netloc}"
+                                + service.find(
+                                    './{urn:schemas-upnp-org:device-1-0}controlURL'
+                                ).text
+                            )
+
                             igd_service = service.find('./{urn:schemas-upnp-org:device-1-0}serviceType').text
                         elif action.find('./{urn:schemas-upnp-org:service-1-0}name').text == 'Browse':
-                            cd_ctr = parsed.scheme + "://" + parsed.netloc + service.find('./{urn:schemas-upnp-org:device-1-0}controlURL').text
+                            cd_ctr = (
+                                f"{parsed.scheme}://{parsed.netloc}"
+                                + service.find(
+                                    './{urn:schemas-upnp-org:device-1-0}controlURL'
+                                ).text
+                            )
+
                             cd_service = service.find('./{urn:schemas-upnp-org:device-1-0}serviceType').text
                         elif action.find('./{urn:schemas-upnp-org:service-1-0}name').text == 'GetDeviceInfo':
-                            wps_ctr = parsed.scheme + "://" + parsed.netloc + service.find('./{urn:schemas-upnp-org:device-1-0}controlURL').text
+                            wps_ctr = (
+                                f"{parsed.scheme}://{parsed.netloc}"
+                                + service.find(
+                                    './{urn:schemas-upnp-org:device-1-0}controlURL'
+                                ).text
+                            )
+
                             wps_service = service.find('./{urn:schemas-upnp-org:device-1-0}serviceType').text
 
                 if igd_ctr and igd_service:
@@ -148,9 +166,9 @@ def parse_locations(locations):
                     find_device_info(wps_ctr, wps_service) 
 
             except requests.exceptions.ConnectionError:
-                print('[!] Could not load %s' % location)
+                print(f'[!] Could not load {location}')
             except requests.exceptions.ReadTimeout:
-                print('[!] Timeout reading from %s' % location)
+                print(f'[!] Timeout reading from {location}')
 
     return
 
@@ -180,21 +198,20 @@ def find_port_mappings(p_url, p_service):
 
         if resp.status_code != 200:
             return
-        else:
-            try:
-                xmlRoot = ET.fromstring(resp.text)
-            except:
-                print('\t\t[!] Failed to parse the response XML')
-                return
+        try:
+            xmlRoot = ET.fromstring(resp.text)
+        except:
+            print('\t\t[!] Failed to parse the response XML')
+            return
 
-            externalIP = xmlRoot.find(".//*NewRemoteHost").text
-            if externalIP == None:
-                externalIP = '*'
+        externalIP = xmlRoot.find(".//*NewRemoteHost").text
+        if externalIP is None:
+            externalIP = '*'
 
-            print('\t\t[%s] %s:%s => %s:%s | Desc: %s' % (xmlRoot.find(".//*NewProtocol").text,
-                externalIP, xmlRoot.find(".//*NewExternalPort").text,
-                xmlRoot.find(".//*NewInternalClient").text, xmlRoot.find(".//*NewInternalPort").text,
-                xmlRoot.find(".//*NewPortMappingDescription").text))
+        print('\t\t[%s] %s:%s => %s:%s | Desc: %s' % (xmlRoot.find(".//*NewProtocol").text,
+            externalIP, xmlRoot.find(".//*NewExternalPort").text,
+            xmlRoot.find(".//*NewInternalClient").text, xmlRoot.find(".//*NewInternalPort").text,
+            xmlRoot.find(".//*NewPortMappingDescription").text))
 
         index += 1
 
@@ -273,7 +290,7 @@ def find_device_info(p_url, p_service):
         print('\t[-] Failed to find the device info')
         return
 
-    info = base64.b64decode(encoded_info.group(1))
+    info = base64.b64decode(encoded_info[1])
     while info:
         try:
             type, length = struct.unpack('!HH', info[:4])
